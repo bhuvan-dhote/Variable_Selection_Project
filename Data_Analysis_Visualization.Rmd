@@ -1,0 +1,2744 @@
+---
+title: "Loan Data Analysis"
+author: "Bhuvaneshwar Dhote"
+date: "June 15, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown file
+
+This is an R Markdown document used to represent exploratory data analysis on the loan data provided by https://www.lendingclub.com/info/download-data.action
+
+### Reading & Cleaning the raw csv data
+
+```{r data read and cleaning}
+library(readr)
+library(sqldf)
+#Reading the Loan Data csv file as data.frame
+LoanStats <- read_csv("C:/Users/Bhuvan/Desktop/Variable_Selection_Project/LoanStats.csv")
+nrow(LoanStats)
+ncol(LoanStats)
+
+#Removing the columns with no data
+LoanStats1 <- LoanStats[,!apply(LoanStats, 2, function(x) 
+  all(gsub(" ", "", x)=="", na.rm=TRUE))]
+nrow(LoanStats1)
+ncol(LoanStats1)
+```
+### Composition of all the portfolios
+
+```{r Composition}
+#Composition of all the portfolio
+library(sqldf)
+LoanStats_agg <- sqldf('select purpose, count(*) as counts, 
+                       sum(loan_amnt) as total_exposure from 
+                       LoanStats1 group by purpose')
+
+LoanStats_agg$tot_loan_cnt <- as.numeric(sum(LoanStats_agg$counts))
+LoanStats_agg$pct_cnt <- as.numeric(round(LoanStats_agg$counts/LoanStats_agg$tot_loan_cnt*100,2))
+LoanStats_agg$tot_loan_amt <- as.numeric(sum(LoanStats_agg$total_exposure))
+LoanStats_agg$pct_exposure <- as.numeric(round(LoanStats_agg$total_exposure/LoanStats_agg$tot_loan_amt*100,2))
+
+
+lbls <- LoanStats_agg$purpose
+lbls1 <- paste(lbls, LoanStats_agg$pct_exposure) # add percents to labels 
+lbls1 <- paste(lbls1,"%",sep="") # ad % to labels
+lbls2 <- paste(lbls, LoanStats_agg$pct_cnt) # add percents to labels 
+lbls2 <- paste(lbls2,"%",sep="") # ad % to labels
+
+pie(LoanStats_agg$total_exposure,labels = lbls1, col=rainbow(length(lbls)),
+    radius = 1, main="Portfolio wise Total Exposure ",cex=0.75)
+
+pie(LoanStats_agg$counts,labels = lbls2, col=rainbow(length(lbls)),
+    radius = 1, main="Portfolio wise Number of loans",cex=0.75)
+```
+So as the debt consolidation represented the major portion of the loan data,
+we have done analysis for only debt consolidation portfolio.
+
+### Further cleaning and manipulation of data
+
+```{r further data cleaning}
+ind_dc <- which(LoanStats1$purpose == 'debt_consolidation')
+LoanStats2 <- LoanStats1[ind_dc,]
+
+sqldf('select loan_status, count(*) as num_loans from LoanStats2
+      group by loan_status')
+
+#cleaning the loan status variable 
+LoanStats2$loan_status_new <- gsub('Does not meet the credit policy. Status:'
+                                   ,'',LoanStats2$loan_status)
+
+#converting the interest and revolving utilization rate to number
+LoanStats2$int_rate_num <- as.numeric(gsub('%','',LoanStats2$int_rate))
+LoanStats2$revol_util_num <- as.numeric(gsub('%','',LoanStats2$revol_util))
+
+#Creating total loan count and total exposure variable
+LoanStats2$tot_loan_amt <- as.numeric(sum(LoanStats2$loan_amnt))
+LoanStats2$tot_loan_cnt <- as.numeric(nrow(LoanStats2))
+```
+### Executive Summery of Analysis
+
+
+
+
+
+### Initial Variable Rejection
+
+Initially we had 54 variables and based on our analysis we have rejected n variables.
+
+Below are the some of the rejected variables with our reason.
+
+i> Variables with same unique value throughout.
+  eg policy_code, application_type, pymnt_plan
+  
+ii> Variables having free text values & needs extensive text mining.
+  eg desc, title, emp_title
+  
+iii> Variables having major portion as blank or unique with minor stake in      exposure.
+  eg mths_since_last_record, pub_rec, chargeoff_within_12_mths
+  
+####  pub_rec: Number of derogatory public records
+```{r pub_rec}
+LoanStats2$tot_loan_amt <- as.numeric(sum(LoanStats2$loan_amnt))
+LoanStats2$tot_loan_cnt <- as.numeric(nrow(LoanStats2))
+library(sqldf)
+pub_rec_agg <- sqldf('select pub_rec,
+             loan_status_new,count(*) as cnts,
+             sum(loan_amnt) as exposure, 
+             round(sum(loan_amnt)/tot_loan_amt*100,2) as exp_pct
+             from LoanStats2 group by pub_rec,
+             loan_status_new')
+pub_rec_agg
+```
+ 
+####  chargeoff_within_12_mths: Number of charge-offs within 12 months
+  
+```{r chargeoff_within_12_mths}
+LoanStats2$tot_loan_amt <- as.numeric(sum(LoanStats2$loan_amnt))
+LoanStats2$tot_loan_cnt <- as.numeric(nrow(LoanStats2))
+library(sqldf)
+chargeoff_within_12_mths_agg <- sqldf('select chargeoff_within_12_mths,
+      loan_status_new,count(*) as cnts,
+      sum(loan_amnt) as exposure, 
+      round(sum(loan_amnt)/tot_loan_amt*100,2) as exp_pct
+      from LoanStats2 group by chargeoff_within_12_mths,
+      loan_status_new')
+chargeoff_within_12_mths_agg
+```
+
+
+### Analysing Continous Variables
+
+#### Loan Amount
+
+```{r loan_amnt}
+summary(LoanStats2$loan_amnt)
+plot(LoanStats2$loan_amnt, ylab = "Loan Amount")
+hist(LoanStats2$loan_amnt, breaks = 20,
+     xlab = "Loan Amount", col="#CCCCFF",
+     main="Histogram of Loan Amount Distribution")
+a <- quantile(LoanStats2$loan_amnt,.90)
+b <- quantile(LoanStats2$loan_amnt,0)
+ind_la <- which(LoanStats2$loan_amnt < a & LoanStats2$loan_amnt > b)
+LoanStats_la <- LoanStats2[ind_la,]
+hist(LoanStats_la$loan_amnt, breaks = 10,
+     xlab = "Loan Amount", col="#CCCCFF",
+     main="Histogram of Loan Amount Distribution")
+summary(LoanStats2$loan_amnt)
+summary(LoanStats_la$loan_amnt)
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$loan_amnt, m=no_cases_bin))
+  
+LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]$loan_amnt))
+LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]))
+  
+  LoanStats_la$loan_amnt_bin <- cut2(LoanStats_la$loan_amnt, m=no_cases_bin)
+  
+  
+  loan_amnt_bin <- sqldf('select loan_amnt_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by loan_amnt_bin, loan_status_new')
+  
+  loan_amnt_bin_tran <- reshape(loan_amnt_bin, idvar = "loan_amnt_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+loan_amnt_bin_tran <-data.frame(loan_amnt_bin=loan_amnt_bin_tran$loan_amnt_bin,
+                                 charge_off_Cnts=loan_amnt_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=loan_amnt_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=loan_amnt_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=loan_amnt_bin_tran$`exposure.Fully Paid`,
+				 annual_inc_total=loan_amnt_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=loan_amnt_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=loan_amnt_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(loan_amnt_bin_tran$`cnts.Charged Off`/(loan_amnt_bin_tran$`cnts.Charged Off`+
+                                                                                         loan_amnt_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(loan_amnt_bin_tran$`exposure.Charged Off`/(loan_amnt_bin_tran$`exposure.Charged Off`+
+                                                                                            loan_amnt_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(loan_amnt_bin_tran$`cnts.Charged Off`/loan_amnt_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(loan_amnt_bin_tran$`exposure.Charged Off`/loan_amnt_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- loan_amnt_bin_tran[,c("loan_amnt_bin","pct_cnts_grp")]
+  df2 <- loan_amnt_bin_tran[,c("loan_amnt_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=loan_amnt_bin_tran,
+                         aes(x=loan_amnt_bin_tran$loan_amnt_bin,
+                             y=loan_amnt_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Loan Amount bin", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$loan_amnt_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$loan_amnt_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$loan_amnt_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$loan_amnt_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$loan_amnt_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$loan_amnt_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Loan Amount bin", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$loan_amnt_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$loan_amnt_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$loan_amnt_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$loan_amnt_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(9)
+
+
+
+```
+
+
+
+Inference 
+
+->Initially in 10 bins we can observe that the charge off rate remains almost same wrt to higher Loan amount bins.
+-> But as we converge the number of bins, we can observe a pattern, first charge off rate decreases and then after certain point it starts increasingto the maximum.
+-> We can say that the loans in the lowest and highest loan amount buckets tends to charge off more, that too more in the highest bucket.
+
+
+
+
+####The total amount committed to that loan at that point in time.
+
+
+
+```{r funded_amnt}
+
+#The total amount committed to that loan at that point in time.
+
+summary(LoanStats2$funded_amnt)
+#summary(LoanStats2$loan_amnt)
+plot(LoanStats2$funded_amnt, ylab = "Total amount committed")
+hist(LoanStats2$funded_amnt, breaks = 20,
+     xlab = "The total amount committed", col="#CCCCFF",
+     main="Histogram of Total amount committed")
+a <- quantile(LoanStats2$funded_amnt,.90)
+b <- quantile(LoanStats2$funded_amnt,0)
+ind_la <- which(LoanStats2$funded_amnt < a & LoanStats2$funded_amnt > b)
+LoanStats_la <- LoanStats2[ind_la,]
+hist(LoanStats_la$funded_amnt, breaks = 10,
+     xlab = "Total amount committed", col="#CCCCFF",
+     main="Histogram of Total amount committed")
+summary(LoanStats2$funded_amnt)
+summary(LoanStats_la$funded_amnt)
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$funded_amnt, m=no_cases_bin))
+  
+LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]$funded_amnt))
+LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]))
+  
+  LoanStats_la$funded_amnt_bin <- cut2(LoanStats_la$funded_amnt, m=no_cases_bin)
+  
+  
+  funded_amnt_bin <- sqldf('select funded_amnt_bin, loan_status_new, count(*) as 
+                                      cnts, sum(funded_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(funded_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by funded_amnt_bin, loan_status_new')
+  
+  funded_amnt_bin_tran <- reshape(funded_amnt_bin, idvar = "funded_amnt_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+funded_amnt_bin_tran <-data.frame(funded_amnt_bin=funded_amnt_bin_tran$funded_amnt_bin,
+                                 charge_off_Cnts=funded_amnt_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=funded_amnt_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=funded_amnt_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=funded_amnt_bin_tran$`exposure.Fully Paid`,
+				 annual_inc_total=funded_amnt_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=funded_amnt_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=funded_amnt_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(funded_amnt_bin_tran$`cnts.Charged Off`/(funded_amnt_bin_tran$`cnts.Charged Off`+
+                                                                                         funded_amnt_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(funded_amnt_bin_tran$`exposure.Charged Off`/(funded_amnt_bin_tran$`exposure.Charged Off`+
+                                                                                            funded_amnt_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(funded_amnt_bin_tran$`cnts.Charged Off`/funded_amnt_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(funded_amnt_bin_tran$`exposure.Charged Off`/funded_amnt_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- funded_amnt_bin_tran[,c("funded_amnt_bin","pct_cnts_grp")]
+  df2 <- funded_amnt_bin_tran[,c("funded_amnt_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=funded_amnt_bin_tran,
+                         aes(x=funded_amnt_bin_tran$funded_amnt_bin,
+                             y=funded_amnt_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Funded Amount bin", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$funded_amnt_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$funded_amnt_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$funded_amnt_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$funded_amnt_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$funded_amnt_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$funded_amnt_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Funded Amount bin", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$funded_amnt_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$funded_amnt_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$funded_amnt_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$funded_amnt_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(9)
+
+```
+Inference 
+-> Almost similar kind of pattern as loan amount.
+
+
+
+#### The total amount committed by investors for that loan at that point in time.
+
+Inference 
+-> Almost similar kind of pattern as loan amount.
+
+
+
+
+
+#### Interest Rate
+
+
+
+```{r int_rate_num}
+# Interest Rate Distribution and Analysis
+summary(LoanStats2$int_rate_num)
+plot(LoanStats2$int_rate_num, ylab = "Interest Rate")
+hist(LoanStats2$int_rate_num, breaks = 20,
+     xlab = "Interest Rate", col="#CCCCFF",
+     main="Histogram of Interest Rate Distribution")
+
+library(Hmisc)
+# Creating 10 bins for interest rate
+no_bins <- 10
+no_cases_bin <- nrow(LoanStats2)/no_bins
+LoanStats2$tot_loan_amt <- as.numeric(sum(LoanStats2$loan_amnt))
+LoanStats2$tot_loan_cnt <- as.numeric(nrow(LoanStats2))
+LoanStats2$int_rate_bin <- cut2(LoanStats2$int_rate_num, m=no_cases_bin)
+
+#Aggregating the data interest rate bin wise
+intrate_bin <- sqldf('select int_rate_bin, loan_status_new, count(*) as 
+                      cnts, sum(loan_amnt) as exposure,
+                      tot_loan_amt, tot_loan_cnt,
+                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                      from LoanStats2 group by int_rate_bin, loan_status_new')
+
+
+intrate_bin_tran <- reshape(intrate_bin, idvar = "int_rate_bin", 
+                             timevar = "loan_status_new", 
+                             direction = "wide")
+
+intrate_bin_tran <-data.frame(int_rate_bin=intrate_bin_tran$int_rate_bin,
+                                 charge_off_Cnts=intrate_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=intrate_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=intrate_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=intrate_bin_tran$`exposure.Fully Paid`,
+                                 tot_loan_amt=intrate_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=intrate_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(intrate_bin_tran$`cnts.Charged Off`/(intrate_bin_tran$`cnts.Charged Off`+
+                                                                                         intrate_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(intrate_bin_tran$`exposure.Charged Off`/(intrate_bin_tran$`exposure.Charged Off`+
+                                                                                            intrate_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(intrate_bin_tran$`cnts.Charged Off`/intrate_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(intrate_bin_tran$`exposure.Charged Off`/intrate_bin_tran$`tot_loan_amt.Charged Off`)*100)
+
+
+
+df1 <- intrate_bin_tran[,c("int_rate_bin","pct_cnts_grp")]
+df2 <- intrate_bin_tran[,c("int_rate_bin","pct_cnts_tot")]
+
+p <- ggplot()+geom_bar(data=intrate_bin_tran,
+                       aes(x=intrate_bin_tran$int_rate_bin,
+                           y=intrate_bin_tran$charge_off_Cnts),
+                       stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Interest Rate Bins", y = "")
+
+p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+               axis.text.y=element_text(size = 10, face="bold"))
+p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+p <- p + 
+  geom_line(data=df1,aes(df1$int_rate_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+  geom_line(data=df2,aes(df2$int_rate_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+  scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                      values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+
+p <- p + geom_point(data=df1,aes(df1$int_rate_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+p <- p + geom_point(data=df2,aes(df2$int_rate_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+```
+
+
+
+
+
+Inference
+-> Here there is a clear and linear relationship between Interest rates and the charge off rates.
+-> Rate of charge off increase as we move in higher interest rate bins.
+
+
+
+
+#### The monthly Installment.
+
+
+
+
+```{r installment}
+#Installment Distribution and Analysis
+summary(LoanStats2$installment)
+plot(LoanStats2$installment, ylab = "Installment Amount before")
+hist(LoanStats2$installment)
+hist(LoanStats2$installment, breaks = 20,
+     xlab = "Installment Amount", col="#CCCCFF",
+     main="Histogram of Installment Amount Distribution")
+a <- quantile(LoanStats2$installment,.95)
+b <- quantile(LoanStats2$installment,0)
+ind_1 <- which(LoanStats2$installment < a & LoanStats2$installment > b)
+LoanStats_ins <- LoanStats2[ind_1,]
+plot(LoanStats_ins$installment, ylab = "Installment Amount after")
+hist(LoanStats_ins$installment, breaks = 20,
+     xlab = "Installment Amount", col="#CCCCFF",
+     main="Histogram of Installment Amount Distribution")
+#Before
+summary(LoanStats2$installment)
+#After
+summary(LoanStats_ins$installment)
+
+bin_plot <- function(x) {
+
+
+
+no_bins <- x
+
+
+library(Hmisc)
+no_cases_bin <- nrow(LoanStats_ins)/no_bins
+no_cases_bin
+unique(cut2(LoanStats_ins$installment, m=no_cases_bin))
+
+LoanStats_ins$tot_loan_amt <- as.numeric(sum(LoanStats_ins$installment))
+LoanStats_ins$tot_loan_cnt <- as.numeric(nrow(LoanStats_ins))
+
+LoanStats_ins$install_amt_bin <- cut2(LoanStats_ins$installment, m=no_cases_bin)
+
+
+install_bin <- sqldf('select install_amt_bin, loan_status_new, count(*) as 
+                      cnts, sum(loan_amnt) as exposure,
+                     tot_loan_amt, tot_loan_cnt,
+                     sum(annual_inc) as annual_inc_total, 
+                     (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                     from LoanStats_ins group by install_amt_bin, loan_status_new')
+
+install_bin_tran <- reshape(install_bin, idvar = "install_amt_bin", 
+                            timevar = "loan_status_new", 
+                            direction = "wide")
+
+install_bin_tran <-data.frame(install_amt_bin=install_bin_tran$install_amt_bin,
+                                 charge_off_Cnts=install_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=install_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=install_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=install_bin_tran$`exposure.Fully Paid`,
+                                 tot_loan_amt=install_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=install_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(install_bin_tran$`cnts.Charged Off`/(install_bin_tran$`cnts.Charged Off`+
+                                                                                         install_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(install_bin_tran$`exposure.Charged Off`/(install_bin_tran$`exposure.Charged Off`+
+                                                                                            install_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(install_bin_tran$`cnts.Charged Off`/install_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(install_bin_tran$`exposure.Charged Off`/install_bin_tran$`tot_loan_amt.Charged Off`)*100)
+
+
+df1 <- install_bin_tran[,c("install_amt_bin","pct_cnts_grp")]
+df2 <- install_bin_tran[,c("install_amt_bin","pct_cnts_tot")]
+
+p <- ggplot()+geom_bar(data=install_bin_tran,
+                       aes(x=install_bin_tran$install_amt_bin,
+                           y=install_bin_tran$charge_off_Cnts),
+                       stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Installment Amount Bins", y = "")
+
+p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+               axis.text.y=element_text(size = 10, face="bold"))
+p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+p <- p + 
+  geom_line(data=df1,aes(df1$install_amt_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+  geom_line(data=df2,aes(df2$install_amt_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+  scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                      values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+
+p <- p + geom_point(data=df1,aes(df1$install_amt_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+p <- p + geom_point(data=df2,aes(df2$install_amt_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+   return(p)
+}
+bin_plot(12)
+bin_plot(10)
+
+
+
+```
+
+
+
+
+Inference
+-> Here also no clear relationship is there between installment amount and the charge off rate.
+
+
+
+
+
+#### Annual Income provided by the borrower during registration
+
+
+
+
+```{r annual_inc}
+
+
+#Annual Income Distribution and Analysis
+summary(LoanStats2$annual_inc)
+plot(LoanStats2$annual_inc, ylab = "Annual Income Amount before")
+hist(LoanStats2$annual_inc, breaks = 20,
+     xlab = "Annual Income", col="#CCCCFF",
+     main="Histogram of Annual Income Distribution before")
+a <- quantile(LoanStats2$annual_inc,.90)
+b <- quantile(LoanStats2$annual_inc,0)
+ind_1 <- which(LoanStats2$annual_inc < a & LoanStats2$annual_inc > b)
+LoanStats_ins <- LoanStats2[ind_1,]
+plot(LoanStats_ins$annual_inc, ylab = "Annual Income Amount after")
+hist(LoanStats_ins$annual_inc, breaks = 20,
+     xlab = "Loan Amount", col="#CCCCFF",
+     main="Histogram of Annual Income Distribution after")
+
+summary(LoanStats2$annual_inc)
+summary(LoanStats_ins$annual_inc)
+
+
+
+bin_plot <- function(x) {
+  
+  
+  
+  no_bins <- x
+  
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_ins)/no_bins
+  unique(cut2(LoanStats_ins$annual_inc, m=no_cases_bin))
+  
+  LoanStats_ins$tot_loan_amt <- as.numeric(sum(LoanStats_ins$annual_inc))
+  LoanStats_ins$tot_loan_cnt <- as.numeric(nrow(LoanStats_ins))
+  
+  LoanStats_ins$annual_inc_bin <- cut2(LoanStats_ins$annual_inc, m=no_cases_bin)
+  
+  
+  annual_inc_bin <- sqldf('select annual_inc_bin, loan_status_new, count(*) as 
+                          cnts, sum(loan_amnt) as exposure,
+                          tot_loan_amt, tot_loan_cnt,
+                          sum(annual_inc) as annual_inc_total,
+                          (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                          from LoanStats_ins group by annual_inc_bin, loan_status_new')
+  
+  annual_inc_bin_tran <- reshape(annual_inc_bin, idvar = "annual_inc_bin", 
+                                 timevar = "loan_status_new", 
+                                 direction = "wide")
+  
+annual_inc_bin_tran <-data.frame(annual_inc_bin=annual_inc_bin_tran$annual_inc_bin,
+                                 charge_off_Cnts=annual_inc_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=annual_inc_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=annual_inc_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=annual_inc_bin_tran$`exposure.Fully Paid`,
+                                 tot_loan_amt=annual_inc_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=annual_inc_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(annual_inc_bin_tran$`cnts.Charged Off`/(annual_inc_bin_tran$`cnts.Charged Off`+
+                                                                                         annual_inc_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(annual_inc_bin_tran$`exposure.Charged Off`/(annual_inc_bin_tran$`exposure.Charged Off`+
+                                                                                            annual_inc_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(annual_inc_bin_tran$`cnts.Charged Off`/annual_inc_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(annual_inc_bin_tran$`exposure.Charged Off`/annual_inc_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- annual_inc_bin_tran[,c("annual_inc_bin","pct_cnts_grp")]
+  df2 <- annual_inc_bin_tran[,c("annual_inc_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=annual_inc_bin_tran,
+                         aes(x=annual_inc_bin_tran$annual_inc_bin,
+                             y=annual_inc_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Annual Income Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$annual_inc_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$annual_inc_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$annual_inc_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$annual_inc_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  
+    p3 <- ggplot() + 
+     geom_line(data=df1,aes(df1$annual_inc_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+     #geom_line(data=df2,aes(df2$annual_inc_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+     scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                         values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+  labs(x = "Annual Income Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                       axis.text.y=element_text(size = 10, face="bold"))
+
+p3 <- p3 + geom_point(data=df1,aes(df1$annual_inc_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+  geom_text(data=df1,aes(df1$annual_inc_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+#p3 <- p3 + geom_point(data=df2,aes(df2$annual_inc_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+#  geom_text(data=df2,aes(df2$annual_inc_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+
+p3 <- p3 + theme(axis.text.y=element_blank(),
+       axis.ticks.y=element_blank())
+
+p3
+
+  retList <- list(p,p3)
+  return(retList)
+
+}
+bin_plot(12)
+bin_plot(8)
+
+
+
+
+
+```
+
+
+
+
+Inference
+-> Initially we observed that rate of charge off was little zig-zag in 10 bins graph.
+-> But as we tried to reduce the bins it became evident that the rate of charge off decreases as wemove towards highr salary bins.
+-> So as we expect the individuals with lower salaries tends to charge off more.
+
+
+####Debt to Incom Ratio
+
+
+```{r dti}
+#Debt to Incom Ratio Distribution and Analysis
+summary(LoanStats2$dti)
+plot(LoanStats2$dti, ylab = "Debt to Incom Ratio before")
+hist(LoanStats2$dti, breaks = 30,
+     xlab = "Debt to Incom Ratio", col="#CCCCFF",
+     main="Histogram of Debt to Incom Ratio Distribution")
+a <- quantile(LoanStats2$dti,1)
+b <- quantile(LoanStats2$dti,.05)
+ind_1 <- which(LoanStats2$dti < a & LoanStats2$dti > b)
+LoanStats_ins <- LoanStats2[ind_1,]
+plot(LoanStats_ins$dti, ylab = "Debt to Incom Ratio after")
+hist(LoanStats_ins$dti, breaks = 40,
+     xlab = "Debt to Incom Ratio", col="#CCCCFF",
+     main="Histogram of Debt to Incom Ratio Distribution")
+
+summary(LoanStats2$dti)
+summary(LoanStats_ins$dti)
+
+
+
+bin_plot <- function(x) {
+  
+  
+  
+  no_bins <- x
+  
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_ins)/no_bins
+  unique(cut2(LoanStats_ins$dti, m=no_cases_bin))
+  
+  LoanStats_ins$tot_loan_amt <- as.numeric(sum(LoanStats_ins$dti))
+  LoanStats_ins$tot_loan_cnt <- as.numeric(nrow(LoanStats_ins))
+  
+  LoanStats_ins$dti_bin <- cut2(LoanStats_ins$dti, m=no_cases_bin)
+  
+  
+  dti_bin <- sqldf('select dti_bin, loan_status_new, count(*) as 
+                   cnts, sum(loan_amnt) as exposure,
+                   tot_loan_amt, tot_loan_cnt,
+                   sum(annual_inc) as annual_inc_total,
+                   (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                   from LoanStats_ins group by dti_bin, loan_status_new')
+  
+  dti_bin_tran <- reshape(dti_bin, idvar = "dti_bin", 
+                          timevar = "loan_status_new", 
+                          direction = "wide")
+  
+dti_bin_tran <-data.frame(dti_bin=dti_bin_tran$dti_bin,
+                                 charge_off_Cnts=dti_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=dti_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=dti_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=dti_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=dti_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=dti_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=dti_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(dti_bin_tran$`cnts.Charged Off`/(dti_bin_tran$`cnts.Charged Off`+
+                                                                                         dti_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(dti_bin_tran$`exposure.Charged Off`/(dti_bin_tran$`exposure.Charged Off`+
+                                                                                            dti_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(dti_bin_tran$`cnts.Charged Off`/dti_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(dti_bin_tran$`exposure.Charged Off`/dti_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- dti_bin_tran[,c("dti_bin","pct_cnts_grp")]
+  df2 <- dti_bin_tran[,c("dti_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=dti_bin_tran,
+                         aes(x=dti_bin_tran$dti_bin,
+                             y=dti_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Debt to Incom Ratio Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$dti_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$dti_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$dti_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$dti_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+ 
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$dti_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$dti_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Debt to Income Ratio Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$dti_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$dti_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$dti_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$dti_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+  p3
+  
+  retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+
+```
+
+
+
+
+
+Inference
+-> Initially we observed that rate of charge off was little zig-zag in 10 bins graph.
+-> But as we tried to reduce the bins it became evident that the rate of charge off increases as we move towards higher dti bins.
+-> So as we expect the individuals with higher debt burden tends to charge off more.
+
+
+
+
+
+####The number of inquiries in past 6 months Distribution and Analysis
+
+
+
+```{r inq_last_6mths}
+
+
+#The number of inquiries in past 6 months Distribution and Analysis
+summary(LoanStats2$inq_last_6mths)
+ind_na <- which(is.na(LoanStats2$inq_last_6mths))
+LoanStats3 <- LoanStats2[-ind_na,]
+
+summary(LoanStats3$inq_last_6mths)
+plot(LoanStats3$inq_last_6mths, ylab = "No of inquiries in 6 months before")
+hist(LoanStats3$inq_last_6mths, breaks = 100,
+     xlab = "No of inquiries in 6 months", col="#CCCCFF",
+     main="Histogram of No of inquiries in 6 months Distribution")
+a <- quantile(LoanStats3$inq_last_6mths,.99)
+b <- quantile(LoanStats3$inq_last_6mths,0)
+ind_1 <- which(LoanStats3$inq_last_6mths < a & LoanStats3$inq_last_6mths > b)
+LoanStats_ins <- LoanStats3[ind_1,]
+plot(LoanStats_ins$inq_last_6mths, ylab = "No of inquiries in 6 months after")
+hist(LoanStats_ins$inq_last_6mths, breaks = 30,
+     xlab = "No of inquiries in 6 months", col="#CCCCFF",
+     main="Histogram of No of inquiries in 6 months Distribution")
+
+ind_wo <- which(LoanStats3$inq_last_6mths < 10 )
+LoanStats_wo <- LoanStats3[ind_wo,]
+
+library(gmodels)
+
+data.frame(CrossTable(LoanStats3$inq_last_6mths,LoanStats3$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+
+
+summary(LoanStats3$inq_last_6mths)
+summary(LoanStats_wo$inq_last_6mths)
+
+
+library(gmodels)
+aaa <- data.frame(CrossTable(LoanStats_wo$inq_last_6mths,LoanStats_wo$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "No of inquiries in 6 months", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+  scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                      values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+
+
+bin_plot <- function(x) {
+  
+  
+  
+  no_bins <- x
+  
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_ins)/no_bins
+  unique(cut2(LoanStats_ins$inq_last_6mths, m=no_cases_bin))
+  
+  LoanStats_ins$tot_loan_amt <- as.numeric(sum(LoanStats_ins$inq_last_6mths))
+  LoanStats_ins$tot_loan_cnt <- as.numeric(nrow(LoanStats_ins))
+  
+  LoanStats_ins$inq_last_6mths_bin <- cut2(LoanStats_ins$inq_last_6mths, m=no_cases_bin)
+  
+  
+  inq_last_6mths_bin <- sqldf('select inq_last_6mths_bin, loan_status_new, count(*) as 
+                   cnts, sum(loan_amnt) as exposure,
+                   tot_loan_amt, tot_loan_cnt,
+                   sum(annual_inc) as annual_inc_total,
+                   (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                   from LoanStats_ins group by inq_last_6mths_bin, loan_status_new')
+  
+  inq_last_6mths_bin_tran <- reshape(inq_last_6mths_bin, idvar = "inq_last_6mths_bin", 
+                          timevar = "loan_status_new", 
+                          direction = "wide")
+  
+inq_last_6mths_bin_tran <-data.frame(inq_last_6mths_bin=inq_last_6mths_bin_tran$inq_last_6mths_bin,
+                                 charge_off_Cnts=inq_last_6mths_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=inq_last_6mths_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=inq_last_6mths_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=inq_last_6mths_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=inq_last_6mths_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=inq_last_6mths_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=inq_last_6mths_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(inq_last_6mths_bin_tran$`cnts.Charged Off`/(inq_last_6mths_bin_tran$`cnts.Charged Off`+
+                                                                                         inq_last_6mths_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(inq_last_6mths_bin_tran$`exposure.Charged Off`/(inq_last_6mths_bin_tran$`exposure.Charged Off`+
+                                                                                            inq_last_6mths_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(inq_last_6mths_bin_tran$`cnts.Charged Off`/inq_last_6mths_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(inq_last_6mths_bin_tran$`exposure.Charged Off`/inq_last_6mths_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- inq_last_6mths_bin_tran[,c("inq_last_6mths_bin","pct_cnts_grp")]
+  df2 <- inq_last_6mths_bin_tran[,c("inq_last_6mths_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=inq_last_6mths_bin_tran,
+                         aes(x=inq_last_6mths_bin_tran$inq_last_6mths_bin,
+                             y=inq_last_6mths_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "No of inquiries in 6 months Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$inq_last_6mths_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$inq_last_6mths_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$inq_last_6mths_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$inq_last_6mths_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$inq_last_6mths_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$inq_last_6mths_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "No of inquiries in 6 months Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$inq_last_6mths_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$inq_last_6mths_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$inq_last_6mths_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$inq_last_6mths_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+  p3
+    retList <- list(p,p3)
+  return(retList)
+
+  
+}
+bin_plot(11)
+bin_plot(10)
+
+
+
+```
+
+
+
+
+
+Inference
+-> We can see the rate of charge off gradually inceases as we move in buckets of hinger number of inquiries.
+-> it became quite evident when we reduce the number of bins.
+
+
+
+
+
+####The number of months since the borrower's last delinquency.
+
+
+```{r mths_since_last_delinq}
+
+#The number of months since the borrower's last delinquency.
+summary(LoanStats2$mths_since_last_delinq)
+ind_na <- which(is.na(LoanStats2$mths_since_last_delinq))
+LoanStats3 <- LoanStats2[-ind_na,]
+
+summary(LoanStats3$mths_since_last_delinq)
+plot(LoanStats3$mths_since_last_delinq, ylab = "No of months since last delinquency")
+hist(LoanStats3$mths_since_last_delinq, breaks = 20,
+     xlab = "No of months since last delinquency", col="#CCCCFF",
+     main="Histogram of No of months since last delinquency")
+a <- quantile(LoanStats3$mths_since_last_delinq,.95)
+b <- quantile(LoanStats3$mths_since_last_delinq,0)
+ind_1 <- which(LoanStats3$mths_since_last_delinq < a & LoanStats3$mths_since_last_delinq > b)
+LoanStats_ins <- LoanStats3[ind_1,]
+plot(LoanStats_ins$mths_since_last_delinq, ylab = "No of months since last delinquency")
+hist(LoanStats_ins$mths_since_last_delinq, breaks = 20,
+     xlab = "No of months since last delinquency", col="#CCCCFF",
+     main="Histogram of No of months since last delinquency")
+
+summary(LoanStats3$mths_since_last_delinq)
+summary(LoanStats_ins$mths_since_last_delinq)
+
+
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_ins)/no_bins
+  unique(cut2(LoanStats_ins$mths_since_last_delinq, m=no_cases_bin))
+  
+  LoanStats_ins$tot_loan_amt <- as.numeric(sum(LoanStats_ins$mths_since_last_delinq))
+  LoanStats_ins$tot_loan_cnt <- as.numeric(nrow(LoanStats_ins))
+  
+  LoanStats_ins$mths_since_last_delinq_bin <- cut2(LoanStats_ins$mths_since_last_delinq, m=no_cases_bin)
+  
+  
+  mths_since_last_delinq_bin <- sqldf('select mths_since_last_delinq_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_ins group by mths_since_last_delinq_bin, loan_status_new')
+  
+  mths_since_last_delinq_bin_tran <- reshape(mths_since_last_delinq_bin, idvar = "mths_since_last_delinq_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+mths_since_last_delinq_bin_tran <-data.frame(mths_since_last_delinq_bin=mths_since_last_delinq_bin_tran$mths_since_last_delinq_bin,
+                                 charge_off_Cnts=mths_since_last_delinq_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=mths_since_last_delinq_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=mths_since_last_delinq_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=mths_since_last_delinq_bin_tran$`exposure.Fully Paid`,
+				 annual_inc_total=mths_since_last_delinq_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=mths_since_last_delinq_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=mths_since_last_delinq_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(mths_since_last_delinq_bin_tran$`cnts.Charged Off`/(mths_since_last_delinq_bin_tran$`cnts.Charged Off`+
+                                                                                         mths_since_last_delinq_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(mths_since_last_delinq_bin_tran$`exposure.Charged Off`/(mths_since_last_delinq_bin_tran$`exposure.Charged Off`+
+                                                                                            mths_since_last_delinq_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(mths_since_last_delinq_bin_tran$`cnts.Charged Off`/mths_since_last_delinq_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(mths_since_last_delinq_bin_tran$`exposure.Charged Off`/mths_since_last_delinq_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- mths_since_last_delinq_bin_tran[,c("mths_since_last_delinq_bin","pct_cnts_grp")]
+  df2 <- mths_since_last_delinq_bin_tran[,c("mths_since_last_delinq_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=mths_since_last_delinq_bin_tran,
+                         aes(x=mths_since_last_delinq_bin_tran$mths_since_last_delinq_bin,
+                             y=mths_since_last_delinq_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "No of months since last delinquency", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$mths_since_last_delinq_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$mths_since_last_delinq_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$mths_since_last_delinq_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$mths_since_last_delinq_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$mths_since_last_delinq_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$mths_since_last_delinq_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "No of months since last delinquency", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$mths_since_last_delinq_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$mths_since_last_delinq_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$mths_since_last_delinq_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$mths_since_last_delinq_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(15)
+bin_plot(12)
+bin_plot(6)
+
+```
+
+
+
+
+
+Inference
+-> We can observe a quite a zig-zag pattern  when we have divided the varible for No of months since last delinquency in 10 bins.
+-> But as converge the number of bins we start to observe concave shaped line graph for the rate of charge offs.
+-> So wecan deduce that the buckets haveing highest and lowest No of months since last delinquency has slightly higher chances of charge offs.
+
+
+
+
+
+#### Total Interest Received to date
+
+
+```{r total_rec_int}
+
+
+
+#Interest received to date
+summary(LoanStats2$total_rec_int)
+plot(LoanStats2$total_rec_int, ylab = "Interest received to date")
+
+hist(LoanStats2$total_rec_int, breaks = 30,
+     xlab = "Interest received to date", col="#CCCCFF",
+     main="Histogram of Interest received to date")
+a <- quantile(LoanStats2$total_rec_int,.90)
+b <- quantile(LoanStats2$total_rec_int,0)
+ind_la <- which(LoanStats2$total_rec_int < a & LoanStats2$total_rec_int > b)
+LoanStats_la <- LoanStats2[ind_la,]
+plot(LoanStats_la$total_rec_int, ylab = "Interest received to date")
+hist(LoanStats_la$total_rec_int, breaks = 30,
+     xlab = "Interest received to date", col="#CCCCFF",
+     main="Histogram of Interest received to date")
+summary(LoanStats2$total_rec_int)
+summary(LoanStats_la$total_rec_int)
+
+
+LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]$loan_amnt))
+LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la[which(LoanStats_la$loan_status_new == 'Charged Off'),]))
+
+
+
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$total_rec_int, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$total_rec_int))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$total_rec_int_bin <- cut2(LoanStats_la$total_rec_int, m=no_cases_bin)
+  
+  
+  total_rec_int_bin <- sqldf('select total_rec_int_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by total_rec_int_bin, loan_status_new')
+  
+  total_rec_int_bin_tran <- reshape(total_rec_int_bin, idvar = "total_rec_int_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  total_rec_int_bin_tran <-data.frame(total_rec_int_bin=total_rec_int_bin_tran$total_rec_int_bin,
+                                 charge_off_Cnts=total_rec_int_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=total_rec_int_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=total_rec_int_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=total_rec_int_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=total_rec_int_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=total_rec_int_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=total_rec_int_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(total_rec_int_bin_tran$`cnts.Charged Off`/(total_rec_int_bin_tran$`cnts.Charged Off`+
+                                                                                         total_rec_int_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(total_rec_int_bin_tran$`exposure.Charged Off`/(total_rec_int_bin_tran$`exposure.Charged Off`+
+                                                                                            total_rec_int_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(total_rec_int_bin_tran$`cnts.Charged Off`/total_rec_int_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(total_rec_int_bin_tran$`exposure.Charged Off`/total_rec_int_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- total_rec_int_bin_tran[,c("total_rec_int_bin","pct_cnts_grp")]
+  df2 <- total_rec_int_bin_tran[,c("total_rec_int_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=total_rec_int_bin_tran,
+                         aes(x=total_rec_int_bin_tran$total_rec_int_bin,
+                             y=total_rec_int_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Total Interest Received to date", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$total_rec_int_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$total_rec_int_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$total_rec_int_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$total_rec_int_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$total_rec_int_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$total_rec_int_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Total Interest Received to date", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$total_rec_int_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$total_rec_int_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$total_rec_int_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$total_rec_int_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(8)
+bin_plot(6)
+
+
+
+
+```
+
+Inference
+-> Initial zig-zag pattern was observed in more number of bins. 
+-> We can observe here that for Interest received to date for the first bin has maximum charge off  and as we move along first three bins it gradually decreases.
+-> After reducing the bins, we can observe a trend of intial decrease in charge off rate as we move from lower interest received bins towards higher interest received bins but later it becomes almost constant.
+-> Based on what we have observed we can deduce that loans in highest interest received till date has maximum chances to charge off.
+
+
+#### Principal received to date
+
+
+
+```{r total_rec_prncp}
+# total_rec_prncp
+summary(LoanStats2$total_rec_prncp)
+plot(LoanStats2$total_rec_prncp, ylab = "Principal received to date")
+
+hist(LoanStats2$total_rec_prncp, breaks = 20,
+     xlab = "Interest received to date", col="#CCCCFF",
+     main="Histogram of Interest received to date")
+a <- quantile(LoanStats2$total_rec_prncp,.90)
+b <- quantile(LoanStats2$total_rec_prncp,0)
+ind_la <- which(LoanStats2$total_rec_prncp < a & LoanStats2$total_rec_prncp > b)
+LoanStats_la <- LoanStats2[ind_la,]
+plot(LoanStats_la$total_rec_prncp, ylab = "Principal received to date")
+hist(LoanStats_la$total_rec_prncp, breaks = 10,
+     xlab = "Interest received to date", col="#CCCCFF",
+     main="Histogram of Principal received to date")
+summary(LoanStats2$total_rec_prncp)
+summary(LoanStats_la$total_rec_prncp)
+
+
+
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$total_rec_prncp, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$total_rec_prncp))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$total_rec_prncp_bin <- cut2(LoanStats_la$total_rec_prncp, m=no_cases_bin)
+  
+  
+  total_rec_prncp_bin <- sqldf('select total_rec_prncp_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by total_rec_prncp_bin, loan_status_new')
+  
+  total_rec_prncp_bin_tran <- reshape(total_rec_prncp_bin, idvar = "total_rec_prncp_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  total_rec_prncp_bin_tran <-data.frame(total_rec_prncp_bin=total_rec_prncp_bin_tran$total_rec_prncp_bin,
+                                 charge_off_Cnts=total_rec_prncp_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=total_rec_prncp_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=total_rec_prncp_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=total_rec_prncp_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=total_rec_prncp_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=total_rec_prncp_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=total_rec_prncp_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(total_rec_prncp_bin_tran$`cnts.Charged Off`/(total_rec_prncp_bin_tran$`cnts.Charged Off`+
+                                                                                         total_rec_prncp_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(total_rec_prncp_bin_tran$`exposure.Charged Off`/(total_rec_prncp_bin_tran$`exposure.Charged Off`+
+                                                                                            total_rec_prncp_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(total_rec_prncp_bin_tran$`cnts.Charged Off`/total_rec_prncp_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(total_rec_prncp_bin_tran$`exposure.Charged Off`/total_rec_prncp_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- total_rec_prncp_bin_tran[,c("total_rec_prncp_bin","pct_cnts_grp")]
+  df2 <- total_rec_prncp_bin_tran[,c("total_rec_prncp_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=total_rec_prncp_bin_tran,
+                         aes(x=total_rec_prncp_bin_tran$total_rec_prncp_bin,
+                             y=total_rec_prncp_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Principal received to date Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$total_rec_prncp_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$total_rec_prncp_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$total_rec_prncp_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$total_rec_prncp_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$total_rec_prncp_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$total_rec_prncp_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Principal received to date Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$total_rec_prncp_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$total_rec_prncp_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$total_rec_prncp_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$total_rec_prncp_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+
+
+
+
+```
+
+
+
+Inference
+-> It is quite evident from the line graph that maximum charge off rate is observed in the lowest bucket of the principal received till date.
+-> We also know that the during the loan tenure a individual pays minimum part of principal at the start of repayment schedule and which gradully increases
+so based on these 2 hypothesis we can extrapolate that the loans have a tendency to charge off in their early period of repayment schedule.
+
+
+
+####Payments received to date for portion of total amount funded by investors
+
+
+
+```{r total_pymnt_inv}
+
+
+# total_pymnt_inv
+summary(LoanStats2$total_pymnt_inv)
+plot(LoanStats2$total_pymnt_inv, ylab = "Payments received to date for portion of total amount funded by investors")
+
+hist(LoanStats2$total_pymnt_inv, breaks = 20,
+     xlab = "Payments received from investors", col="#CCCCFF",
+     main="Histogram of Payments received to date for portion of total amount funded by investors")
+a <- quantile(LoanStats2$total_pymnt_inv,.80)
+b <- quantile(LoanStats2$total_pymnt_inv,0)
+ind_la <- which(LoanStats2$total_pymnt_inv < a & LoanStats2$total_pymnt_inv > b)
+LoanStats_la <- LoanStats2[ind_la,]
+plot(LoanStats_la$total_pymnt_inv, ylab = "Payments received to date for portion of total amount funded by investors")
+hist(LoanStats_la$total_pymnt_inv, breaks = 10,
+     xlab = "Payments received from investors", col="#CCCCFF",
+     main="Histogram of Payments received to date for portion of total amount funded by investors")
+summary(LoanStats2$total_pymnt_inv)
+summary(LoanStats_la$total_pymnt_inv)
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$total_pymnt_inv, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$total_pymnt_inv))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$totalpymntinv_bin <- cut2(LoanStats_la$total_pymnt_inv, m=no_cases_bin)
+  
+  
+  totalpymntinv_bin_tran <- sqldf('select totalpymntinv_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by totalpymntinv_bin, loan_status_new')
+  
+  totalpymntinv_bin_tran <- reshape(totalpymntinv_bin_tran , idvar = "totalpymntinv_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  totalpymntinv_bin_tran <-data.frame(totalpymntinv_bin=totalpymntinv_bin_tran$totalpymntinv_bin,
+                                 charge_off_Cnts=totalpymntinv_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=totalpymntinv_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=totalpymntinv_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=totalpymntinv_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=totalpymntinv_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=totalpymntinv_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=totalpymntinv_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(totalpymntinv_bin_tran$`cnts.Charged Off`/(totalpymntinv_bin_tran$`cnts.Charged Off`+
+                                                                                         totalpymntinv_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(totalpymntinv_bin_tran$`exposure.Charged Off`/(totalpymntinv_bin_tran$`exposure.Charged Off`+
+                                                                                            totalpymntinv_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(totalpymntinv_bin_tran$`cnts.Charged Off`/totalpymntinv_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(totalpymntinv_bin_tran$`exposure.Charged Off`/totalpymntinv_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- totalpymntinv_bin_tran[,c("totalpymntinv_bin","pct_cnts_grp")]
+  df2 <- totalpymntinv_bin_tran[,c("totalpymntinv_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=totalpymntinv_bin_tran,
+                         aes(x=totalpymntinv_bin_tran$totalpymntinv_bin,
+                             y=totalpymntinv_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Payments received from investors Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$totalpymntinv_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$totalpymntinv_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$totalpymntinv_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$totalpymntinv_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$totalpymntinv_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$totalpymntinv_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Payments received from investors Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$totalpymntinv_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$totalpymntinv_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$totalpymntinv_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$totalpymntinv_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+
+
+```
+
+
+
+#### The total number of credit lines currently in the borrower's credit file
+
+```{r total_acc}
+
+
+# The total number of credit lines currently in the borrower's credit file
+ind <- which(is.na(LoanStats2$total_acc))
+LoanStats3 <- LoanStats2[-ind,]
+
+summary(LoanStats3$total_acc)
+plot(LoanStats3$total_acc, 
+     ylab = "Total number of credit lines")
+
+hist(LoanStats3$total_acc, breaks = 30,
+     xlab = "Total number of credit lines", col="#CCCCFF",
+     main="Histogram of Total number of credit lines")
+a <- quantile(LoanStats3$total_acc,.90)
+b <- quantile(LoanStats3$total_acc,0)
+ind_la <- which(LoanStats3$total_acc < a & LoanStats3$total_acc > b)
+LoanStats_la <- LoanStats3[ind_la,]
+plot(LoanStats_la$total_acc, 
+     ylab = "Total number of credit lines")
+hist(LoanStats_la$total_acc, breaks = 20,
+     xlab = "Total number of credit lines", col="#CCCCFF",
+     main="Histogram of Total number of credit lines")
+summary(LoanStats3$total_acc)
+summary(LoanStats_la$total_acc)
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$total_acc, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$total_acc))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$total_acc_bin <- cut2(LoanStats_la$total_acc, m=no_cases_bin)
+  
+  
+  total_acc_bin <- sqldf('select total_acc_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by total_acc_bin, loan_status_new')
+  
+  total_acc_bin_tran <- reshape(total_acc_bin, idvar = "total_acc_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  total_acc_bin_tran <-data.frame(total_acc_bin=total_acc_bin_tran$total_acc_bin,
+                                 charge_off_Cnts=total_acc_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=total_acc_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=total_acc_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=total_acc_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=total_acc_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=total_acc_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=total_acc_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(total_acc_bin_tran$`cnts.Charged Off`/(total_acc_bin_tran$`cnts.Charged Off`+
+                                                                                         total_acc_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(total_acc_bin_tran$`exposure.Charged Off`/(total_acc_bin_tran$`exposure.Charged Off`+
+                                                                                            total_acc_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(total_acc_bin_tran$`cnts.Charged Off`/total_acc_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(total_acc_bin_tran$`exposure.Charged Off`/total_acc_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- total_acc_bin_tran[,c("total_acc_bin","pct_cnts_grp")]
+  df2 <- total_acc_bin_tran[,c("total_acc_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=total_acc_bin_tran,
+                         aes(x=total_acc_bin_tran$total_acc_bin,
+                             y=total_acc_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Total number of credit lines Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$total_acc_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$total_acc_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$total_acc_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$total_acc_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$total_acc_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$total_acc_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Total number of credit lines Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$total_acc_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$total_acc_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$total_acc_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$total_acc_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+bin_plot(8)
+
+```
+
+Inference
+-> Intial inspection of the graph with 10 bins suggests a almost constant rate of charge off in all the bins.
+-> But as we reduce the number of bins we can observe the rate of charge off is maximum in the first bucket and after decreasing it becomes constant. 
+-> So we can say that the individuals with lower number of credit lines hade more tendancy to charge off.
+
+
+
+#### Total credit revolving balance
+
+
+```{r revol_bal}
+# Total credit revolving balance
+
+summary(LoanStats2$revol_bal)
+plot(LoanStats2$revol_bal, 
+     ylab = "Total credit revolving balance")
+
+hist(LoanStats2$revol_bal, breaks = 30,
+     xlab = "Total credit revolving balance", col="#CCCCFF",
+     main="Histogram of Total credit revolving balance")
+a <- quantile(LoanStats2$revol_bal,.75)
+b <- quantile(LoanStats2$revol_bal,0)
+ind_la <- which(LoanStats2$revol_bal < a & LoanStats2$revol_bal > b)
+LoanStats_la <- LoanStats2[ind_la,]
+plot(LoanStats_la$revol_bal, 
+     ylab = "Total credit revolving balance")
+hist(LoanStats_la$revol_bal, breaks = 20,
+     xlab = "Total credit revolving balance", col="#CCCCFF",
+     main="Histogram of Total credit revolving balance")
+summary(LoanStats2$revol_bal)
+summary(LoanStats_la$revol_bal)
+
+
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$revol_bal, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$revol_bal))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$revol_bal_bin <- cut2(LoanStats_la$revol_bal, m=no_cases_bin)
+  
+  
+  revol_bal_bin <- sqldf('select revol_bal_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by revol_bal_bin, loan_status_new')
+  
+  revol_bal_bin_tran <- reshape(revol_bal_bin, idvar = "revol_bal_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  revol_bal_bin_tran <-data.frame(revol_bal_bin=revol_bal_bin_tran$revol_bal_bin,
+                                 charge_off_Cnts=revol_bal_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=revol_bal_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=revol_bal_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=revol_bal_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=revol_bal_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=revol_bal_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=revol_bal_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(revol_bal_bin_tran$`cnts.Charged Off`/(revol_bal_bin_tran$`cnts.Charged Off`+
+                                                                                         revol_bal_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(revol_bal_bin_tran$`exposure.Charged Off`/(revol_bal_bin_tran$`exposure.Charged Off`+
+                                                                                            revol_bal_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(revol_bal_bin_tran$`cnts.Charged Off`/revol_bal_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(revol_bal_bin_tran$`exposure.Charged Off`/revol_bal_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- revol_bal_bin_tran[,c("revol_bal_bin","pct_cnts_grp")]
+  df2 <- revol_bal_bin_tran[,c("revol_bal_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=revol_bal_bin_tran,
+                         aes(x=revol_bal_bin_tran$revol_bal_bin,
+                             y=revol_bal_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Total credit revolving balance Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$revol_bal_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$revol_bal_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$revol_bal_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$revol_bal_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$revol_bal_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$revol_bal_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Total credit revolving balance Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$revol_bal_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$revol_bal_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$revol_bal_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$revol_bal_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+bin_plot(8)
+
+
+```
+
+
+
+Inference
+-> Almost no pattern observed between Total credit revolving balance and rate of charge off.
+
+
+
+
+#### Revolving line utilization rate, or the amount of credit the borrower is using relative to all available revolving credit.
+
+
+
+```{r revol_util_num}
+
+# Revolving line utilization rate, or the amount of credit the borrower is using relative to all available revolving credit.
+
+ind <- which(is.na(LoanStats2$revol_util_num))
+LoanStats3 <- LoanStats2[-ind,]
+
+#cleaning the percentage which is above 100
+ind <- which(LoanStats3$revol_util_num > 100)
+LoanStats3 <- LoanStats3[-ind,]
+
+
+summary(LoanStats3$revol_util_num)
+plot(LoanStats3$revol_util_num, 
+     ylab = "Revolving line utilization rate")
+
+hist(LoanStats3$revol_util_num, breaks = 20,
+     xlab = "Revolving line utilization rate", col="#CCCCFF",
+     main="Histogram of Revolving line utilization rate")
+a <- quantile(LoanStats3$revol_util_num,1)
+b <- quantile(LoanStats3$revol_util_num,.1)
+ind_la <- which(LoanStats3$revol_util_num < a & LoanStats3$revol_util_num > b)
+LoanStats_la <- LoanStats3[ind_la,]
+plot(LoanStats_la$revol_util_num, 
+     ylab = "Revolving line utilization rate")
+hist(LoanStats_la$revol_util_num, breaks = 30,
+     xlab = "Revolving line utilization rate", col="#CCCCFF",
+     main="Histogram of Revolving line utilization rate")
+summary(LoanStats3$revol_util_num)
+summary(LoanStats_la$revol_util_num)
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_la)/no_bins
+  unique(cut2(LoanStats_la$revol_util_num, m=no_cases_bin))
+  
+  LoanStats_la$tot_loan_amt <- as.numeric(sum(LoanStats_la$revol_util_num))
+  LoanStats_la$tot_loan_cnt <- as.numeric(nrow(LoanStats_la))
+  
+  LoanStats_la$revol_util_num_bin <- cut2(LoanStats_la$revol_util_num, m=no_cases_bin)
+  
+  
+  revol_util_num_bin <- sqldf('select revol_util_num_bin, loan_status_new, count(*) as 
+                                      cnts, sum(loan_amnt) as exposure,
+                                      tot_loan_amt, tot_loan_cnt,
+                                      sum(annual_inc) as annual_inc_total,
+                                      (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                      from LoanStats_la group by revol_util_num_bin, loan_status_new')
+  
+  revol_util_num_bin_tran <- reshape(revol_util_num_bin, idvar = "revol_util_num_bin", 
+                                             timevar = "loan_status_new", 
+                                             direction = "wide")
+  
+  revol_util_num_bin_tran <-data.frame(revol_util_num_bin=revol_util_num_bin_tran$revol_util_num_bin,
+                                 charge_off_Cnts=revol_util_num_bin_tran$`cnts.Charged Off`,
+                                 Fully_paid_Cnts=revol_util_num_bin_tran$`cnts.Fully Paid`,
+                                 charge_off_Exp=revol_util_num_bin_tran$`exposure.Charged Off`,
+                                 Fully_paid_Exp=revol_util_num_bin_tran$`exposure.Fully Paid`,
+				                         annual_inc_total=revol_util_num_bin_tran$`annual_inc_total.Charged Off`,
+                                 tot_loan_amt=revol_util_num_bin_tran$`tot_loan_amt.Charged Off`,
+                                 tot_loan_cnt=revol_util_num_bin_tran$`tot_loan_cnt.Charged Off`,
+                                 pct_cnts_grp=(revol_util_num_bin_tran$`cnts.Charged Off`/(revol_util_num_bin_tran$`cnts.Charged Off`+
+                                                                                         revol_util_num_bin_tran$`cnts.Fully Paid`))*100,
+                                 pct_exp_grp=(revol_util_num_bin_tran$`exposure.Charged Off`/(revol_util_num_bin_tran$`exposure.Charged Off`+
+                                                                                            revol_util_num_bin_tran$`exposure.Fully Paid`))*100,
+                                 pct_cnts_tot=(revol_util_num_bin_tran$`cnts.Charged Off`/revol_util_num_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                 pct_exp_tot=(revol_util_num_bin_tran$`exposure.Charged Off`/revol_util_num_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- revol_util_num_bin_tran[,c("revol_util_num_bin","pct_cnts_grp")]
+  df2 <- revol_util_num_bin_tran[,c("revol_util_num_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=revol_util_num_bin_tran,
+                         aes(x=revol_util_num_bin_tran$revol_util_num_bin,
+                             y=revol_util_num_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Revolving line utilization rate Bins", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$revol_util_num_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$revol_util_num_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$revol_util_num_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$revol_util_num_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$revol_util_num_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$revol_util_num_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Revolving line utilization rate Bins", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$revol_util_num_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$revol_util_num_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$revol_util_num_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$revol_util_num_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+    retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+bin_plot(10)
+
+```
+
+
+
+
+Inference
+-> This is quite clear here we observe that as we move towards higher revolving utilization rate charge off rate increases.
+-> We can deduce that the individual who have used more there credit lines tends to charge off more.
+
+
+
+
+
+### Analysing Categorical Variables
+
+
+
+
+#### The number of payments on the loan. Values are in months and can be either 36 or 60.
+
+
+```{r term}
+
+unique(LoanStats2$term)
+
+library(gmodels)
+aaa <- data.frame(CrossTable(LoanStats2$term,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Loan Term", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+```
+
+
+
+Inference
+-> This is evident from the graph despite having large number of charge offs in loans with 36 month term the loans in 60 month term tends to charge off more.
+-> Longer term duration increases the chances of charge off.
+
+
+
+
+
+#### Loan Grade assigned by Lending club
+
+
+```{r grade}
+
+library(gmodels)
+#grade vs loan status
+unique(LoanStats2$grade)
+
+aaa <- data.frame(CrossTable(LoanStats2$grade,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Loan Grade", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+```
+
+
+
+Inference
+-> As expected the charge off rate increases aswe move towards lower Loan grade.
+
+
+#### Loan Sub Grade assigned by Lending club
+
+
+
+```{r sub_grade}
+library(gmodels)
+#grade vs loan status
+unique(LoanStats2$sub_grade)
+
+aaa <- data.frame(CrossTable(LoanStats2$sub_grade,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Loan Sub Grade", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+```
+
+
+
+#### Length of Employment
+
+```{r emp_length}
+
+library(gmodels)
+#Employment length vs loan status
+
+unique(LoanStats2$emp_length)
+CrossTable(LoanStats2$emp_length,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE)
+
+ind_na <- which(LoanStats2$emp_length != "n/a")
+LoanStats_el <- LoanStats2[ind_na,]
+unique(LoanStats_el$emp_length)
+
+aaa <- data.frame(CrossTable(LoanStats_el$emp_length,LoanStats_el$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Length of Employment", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+```
+
+
+
+
+#### The home ownership status vs loan status
+
+
+
+```{r home_ownership}
+
+library(gmodels)
+#The home ownership status vs loan status
+
+unique(LoanStats2$home_ownership)
+
+CrossTable(LoanStats2$home_ownership,LoanStats2$loan_status_new,
+           prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE)
+
+ind_na <- which(LoanStats2$home_ownership != "NONE")
+LoanStats_el <- LoanStats2[ind_na,]
+unique(LoanStats_el$home_ownership)
+
+aaa <- data.frame(CrossTable(LoanStats_el$home_ownership,LoanStats_el$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "The home ownership status", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+
+```
+
+
+
+#### Verification status
+
+
+
+```{r verification_status}
+
+library(gmodels)
+#verification_status vs loan status
+
+unique(LoanStats2$verification_status)
+
+
+aaa <- data.frame(CrossTable(LoanStats2$verification_status,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Verification status", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+
+```
+
+#### Address State
+
+```{r addr_state}
+
+
+library(gmodels)
+#Address State vs loan status
+
+unique(LoanStats2$addr_state)
+
+
+aaa <- data.frame(CrossTable(LoanStats2$addr_state,LoanStats2$loan_status_new,
+                             prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Address State", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+
+```
+
+
+
+#### Loan Issue Date
+
+
+```{r issue_d}
+#Issue Date Analysis
+ss = strsplit(LoanStats2$issue_d,'-')
+LoanStats2$issue_m <- sapply(ss,function(x)x[1])
+LoanStats2$issue_y <- sapply(ss,function(x)x[2])  
+
+LoanStats_issued <- sqldf('select issue_d, 
+      loan_status_new, count(*) as cnts, sum(loan_amnt) as total_exposure
+      from LoanStats2 group by issue_d')
+
+issue_d_tran_d <- reshape(LoanStats_issued, idvar = "issue_d", 
+                        timevar = "loan_status_new", 
+                        direction = "wide")
+issue_d_tran_d
+
+LoanStats_issuey <- sqldf('select issue_y, 
+      loan_status_new, count(*) as cnts, sum(loan_amnt) as total_exposure
+      from LoanStats2 group by issue_y')
+
+issue_d_tran_y <- reshape(LoanStats_issuey, idvar = "issue_y", 
+                        timevar = "loan_status_new", 
+                        direction = "wide")
+issue_d_tran_y
+
+LoanStats_issuem <- sqldf('select issue_m, 
+      loan_status_new, count(*) as cnts, sum(loan_amnt) as total_exposure
+      from LoanStats2 group by issue_m')
+
+issue_d_tran_m <- reshape(LoanStats_issuem, idvar = "issue_m", 
+                          timevar = "loan_status_new", 
+                          direction = "wide")
+issue_d_tran_m
+
+
+```
+
+
+
+
+
+####Nos of 30 DPD in last 2 Years
+
+
+
+
+```{r delinq_2yrs}
+
+
+
+summary(LoanStats2$delinq_2yrs)
+unique(LoanStats2$delinq_2yrs)
+library(gmodels)
+CrossTable(LoanStats2$delinq_2yrs,LoanStats2$loan_status_new,
+prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE)
+ind <- which(LoanStats2$delinq_2yrs > 0)
+LoanStats_d2 <- LoanStats2[ind,]
+
+aaa <-data.frame(CrossTable(LoanStats_d2$delinq_2yrs,LoanStats_d2$loan_status_new,
+           prop.r=TRUE,prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE))
+
+
+b <- data.frame(aaa$t.x,aaa$t.y,aaa$t.Freq,aaa$prop.row.Freq)
+c <- reshape(b, idvar = "aaa.t.x", 
+             timevar = "aaa.t.y", 
+             direction = "wide")
+
+
+p <- ggplot()+geom_bar(data=c,
+                       aes(x=c$aaa.t.x,
+                           y=c$`aaa.t.Freq.Charged Off`),
+                       stat="identity",fill = "#CCCCFF", colour="black") + 
+  labs(x = "Nos of 30 DPD in last 2 Years", y = "")
+
+p <- p + ggtitle("Number of Charge offs                                                              Percent of Charge offs\n")+
+  theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+
+
+p <- p + 
+  geom_line(data=c,aes(c$aaa.t.x, c$`aaa.prop.row.Freq.Charged Off`*1000, group = 1, colour = "% Charge off in Bin"), size = 1 )
+scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin"),
+                    values = c("% Charge off in Bin"="#ff66ff"))
+
+p <- p + geom_point(data=c,aes(c$aaa.t.x, 
+                               c$`aaa.prop.row.Freq.Charged Off`*1000), colour = "#ff66ff", size =2.5, shape = 17)
+
+p <- p +scale_y_continuous(sec.axis = sec_axis(~./10, name = derive())) +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_line(color = "gray50", size = 0.5),
+        panel.grid.major.x = element_blank())
+
+p
+
+
+```
+
+
+####First credit line date
+
+
+
+
+```{r earliest_cr_line}
+
+
+ind <- which(is.na(LoanStats2$earliest_cr_line))
+LoanStats_cl <- LoanStats2[-ind,]
+
+LoanStats_cl$earliest_cr_line_n <- as.Date(gsub(" ","",
+                                              paste("01-",
+                                         LoanStats_cl$earliest_cr_line))
+                                         ,"%d-%b-%Y")
+summary(LoanStats_cl$earliest_cr_line_n)
+plot(LoanStats_cl$earliest_cr_line_n, ylab = "First credit line date")
+hist(LoanStats_cl$earliest_cr_line_n, breaks = 20,
+     xlab = "First credit line date", col="#CCCCFF",
+     main="Histogram of First credit line date Distribution")
+
+a <- quantile(as.numeric(LoanStats_cl$earliest_cr_line_n),1)
+b <- quantile(as.numeric(LoanStats_cl$earliest_cr_line_n),0)
+
+ind_la <- which(as.numeric(LoanStats_cl$earliest_cr_line_n) < a & 
+                  as.numeric(LoanStats_cl$earliest_cr_line_n) > b)
+LoanStats_cl_a <- LoanStats_cl[ind_la,]
+hist(LoanStats_cl_a$earliest_cr_line_n, breaks = 20,
+     xlab = "First credit line date", col="#CCCCFF",
+     main="Histogram of First credit line date Distribution")
+summary(LoanStats_cl$earliest_cr_line_n)
+summary(LoanStats_cl_a$earliest_cr_line_n)
+
+
+LoanStats_cl$as_of_date <- format(Sys.Date(), format="%Y-%m-%d")
+
+#LoanStats_cl$No_days_e_cr_lines <- LoanStats_cl$as_of_date - LoanStats_cl$earliest_cr_line_n
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_cl_a)/no_bins
+  no_cases_bin
+  
+  LoanStats_cl_a$tot_loan_amt <- as.numeric(sum(LoanStats_cl_a[which(LoanStats_cl_a$loan_status_new == 'Charged Off'),]$loan_amnt))
+  LoanStats_cl_a$tot_loan_cnt <- as.numeric(nrow(LoanStats_cl_a[which(LoanStats_cl_a$loan_status_new == 'Charged Off'),]))
+  
+  LoanStats_cl_a <- LoanStats_cl_a[order(LoanStats_cl_a$earliest_cr_line_n),]
+  LoanStats_cl_a$earliest_cr_line_n_bin <- cut(LoanStats_cl_a$earliest_cr_line_n,no_bins)
+  
+  earliest_cr_line_n_bin <- sqldf('select earliest_cr_line_n_bin, loan_status_new, count(*) as 
+                                  cnts, sum(loan_amnt) as exposure,
+                                  tot_loan_amt, tot_loan_cnt,
+                                  sum(annual_inc) as annual_inc_total,
+                                  (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                                  from LoanStats_cl_a group by earliest_cr_line_n_bin, loan_status_new')
+  
+  earliest_cr_line_n_bin_tran <- reshape(earliest_cr_line_n_bin, idvar = "earliest_cr_line_n_bin", 
+                                         timevar = "loan_status_new", 
+                                         direction = "wide")
+  
+  earliest_cr_line_n_bin_tran <-data.frame(earliest_cr_line_n_bin=earliest_cr_line_n_bin_tran$earliest_cr_line_n_bin,
+                                           charge_off_Cnts=earliest_cr_line_n_bin_tran$`cnts.Charged Off`,
+                                           Fully_paid_Cnts=earliest_cr_line_n_bin_tran$`cnts.Fully Paid`,
+                                           charge_off_Exp=earliest_cr_line_n_bin_tran$`exposure.Charged Off`,
+                                           Fully_paid_Exp=earliest_cr_line_n_bin_tran$`exposure.Fully Paid`,
+                                           annual_inc_total=earliest_cr_line_n_bin_tran$`annual_inc_total.Charged Off`,
+                                           tot_loan_amt=earliest_cr_line_n_bin_tran$`tot_loan_amt.Charged Off`,
+                                           tot_loan_cnt=earliest_cr_line_n_bin_tran$`tot_loan_cnt.Charged Off`,
+                                           pct_cnts_grp=(earliest_cr_line_n_bin_tran$`cnts.Charged Off`/(earliest_cr_line_n_bin_tran$`cnts.Charged Off`+
+                                                                                                           earliest_cr_line_n_bin_tran$`cnts.Fully Paid`))*100,
+                                           pct_exp_grp=(earliest_cr_line_n_bin_tran$`exposure.Charged Off`/(earliest_cr_line_n_bin_tran$`exposure.Charged Off`+
+                                                                                                              earliest_cr_line_n_bin_tran$`exposure.Fully Paid`))*100,
+                                           pct_cnts_tot=(earliest_cr_line_n_bin_tran$`cnts.Charged Off`/earliest_cr_line_n_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                           pct_exp_tot=(earliest_cr_line_n_bin_tran$`exposure.Charged Off`/earliest_cr_line_n_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- earliest_cr_line_n_bin_tran[,c("earliest_cr_line_n_bin","pct_cnts_grp")]
+  df2 <- earliest_cr_line_n_bin_tran[,c("earliest_cr_line_n_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=earliest_cr_line_n_bin_tran,
+                         aes(x=earliest_cr_line_n_bin_tran$earliest_cr_line_n_bin,
+                             y=earliest_cr_line_n_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "First credit line date bin", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$earliest_cr_line_n_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$earliest_cr_line_n_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$earliest_cr_line_n_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$earliest_cr_line_n_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$earliest_cr_line_n_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$earliest_cr_line_n_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "First credit line date bin", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$earliest_cr_line_n_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$earliest_cr_line_n_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$earliest_cr_line_n_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$earliest_cr_line_n_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+  retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(10)
+
+
+
+```
+
+
+
+
+####Last Payment date
+
+
+
+
+```{r last_pymnt_d}
+
+
+
+ind <- which(is.na(LoanStats2$last_pymnt_d))
+LoanStats_cl <- LoanStats2[-ind,]
+
+LoanStats_cl$last_pymnt_d_n <- as.Date(gsub(" ","",
+                                            paste("01-",
+                                                  LoanStats_cl$last_pymnt_d))
+                                       ,"%d-%b-%Y")
+summary(LoanStats_cl$last_pymnt_d_n)
+plot(LoanStats_cl$last_pymnt_d_n, ylab = "Last Payment date")
+hist(LoanStats_cl$last_pymnt_d_n, breaks = 20,
+     xlab = "Last Payment date", col="#CCCCFF",
+     main="Histogram of Last Payment date Distribution")
+
+a <- quantile(as.numeric(LoanStats_cl$last_pymnt_d_n),1)
+b <- quantile(as.numeric(LoanStats_cl$last_pymnt_d_n),0)
+
+ind_la <- which(as.numeric(LoanStats_cl$last_pymnt_d_n) < a & 
+                  as.numeric(LoanStats_cl$last_pymnt_d_n) > b)
+LoanStats_cl_a <- LoanStats_cl[ind_la,]
+hist(LoanStats_cl_a$last_pymnt_d_n, breaks = 20,
+     xlab = "Last Payment date", col="#CCCCFF",
+     main="Histogram of Last Payment date Distribution")
+summary(LoanStats_cl$last_pymnt_d_n)
+summary(LoanStats_cl_a$last_pymnt_d_n)
+
+
+LoanStats_cl$as_of_date <- format(Sys.Date(), format="%Y-%m-%d")
+
+#LoanStats_cl$No_days_e_cr_lines <- as.numeric(LoanStats_cl$as_of_date) - as.numeric(LoanStats_cl$last_pymnt_d_n)
+
+
+bin_plot <- function(x) {
+  
+  no_bins <- x
+  
+  library(Hmisc)
+  no_cases_bin <- nrow(LoanStats_cl_a)/no_bins
+  no_cases_bin
+  
+  LoanStats_cl_a$tot_loan_amt <- as.numeric(sum(LoanStats_cl_a[which(LoanStats_cl_a$loan_status_new == 'Charged Off'),]$loan_amnt))
+  LoanStats_cl_a$tot_loan_cnt <- as.numeric(nrow(LoanStats_cl_a[which(LoanStats_cl_a$loan_status_new == 'Charged Off'),]))
+  
+  LoanStats_cl_a <- LoanStats_cl_a[order(LoanStats_cl_a$last_pymnt_d_n),]
+  LoanStats_cl_a$last_pymnt_d_n_bin <- cut(LoanStats_cl_a$last_pymnt_d_n,no_bins)
+  
+  last_pymnt_d_n_bin <- sqldf('select last_pymnt_d_n_bin, loan_status_new, count(*) as 
+                              cnts, sum(loan_amnt) as exposure,
+                              tot_loan_amt, tot_loan_cnt,
+                              sum(annual_inc) as annual_inc_total,
+                              (sum(loan_amnt)/tot_loan_amt)*100 as pct_loan 
+                              from LoanStats_cl_a group by last_pymnt_d_n_bin, loan_status_new')
+  
+  last_pymnt_d_n_bin_tran <- reshape(last_pymnt_d_n_bin, idvar = "last_pymnt_d_n_bin", 
+                                     timevar = "loan_status_new", 
+                                     direction = "wide")
+  
+  last_pymnt_d_n_bin_tran <-data.frame(last_pymnt_d_n_bin=last_pymnt_d_n_bin_tran$last_pymnt_d_n_bin,
+                                       charge_off_Cnts=last_pymnt_d_n_bin_tran$`cnts.Charged Off`,
+                                       Fully_paid_Cnts=last_pymnt_d_n_bin_tran$`cnts.Fully Paid`,
+                                       charge_off_Exp=last_pymnt_d_n_bin_tran$`exposure.Charged Off`,
+                                       Fully_paid_Exp=last_pymnt_d_n_bin_tran$`exposure.Fully Paid`,
+                                       annual_inc_total=last_pymnt_d_n_bin_tran$`annual_inc_total.Charged Off`,
+                                       tot_loan_amt=last_pymnt_d_n_bin_tran$`tot_loan_amt.Charged Off`,
+                                       tot_loan_cnt=last_pymnt_d_n_bin_tran$`tot_loan_cnt.Charged Off`,
+                                       pct_cnts_grp=(last_pymnt_d_n_bin_tran$`cnts.Charged Off`/(last_pymnt_d_n_bin_tran$`cnts.Charged Off`+
+                                                                                                   last_pymnt_d_n_bin_tran$`cnts.Fully Paid`))*100,
+                                       pct_exp_grp=(last_pymnt_d_n_bin_tran$`exposure.Charged Off`/(last_pymnt_d_n_bin_tran$`exposure.Charged Off`+
+                                                                                                      last_pymnt_d_n_bin_tran$`exposure.Fully Paid`))*100,
+                                       pct_cnts_tot=(last_pymnt_d_n_bin_tran$`cnts.Charged Off`/last_pymnt_d_n_bin_tran$`tot_loan_cnt.Charged Off`)*100,
+                                       pct_exp_tot=(last_pymnt_d_n_bin_tran$`exposure.Charged Off`/last_pymnt_d_n_bin_tran$`tot_loan_amt.Charged Off`)*100)
+  
+  
+  df1 <- last_pymnt_d_n_bin_tran[,c("last_pymnt_d_n_bin","pct_cnts_grp")]
+  df2 <- last_pymnt_d_n_bin_tran[,c("last_pymnt_d_n_bin","pct_cnts_tot")]
+  
+  p <- ggplot()+geom_bar(data=last_pymnt_d_n_bin_tran,
+                         aes(x=last_pymnt_d_n_bin_tran$last_pymnt_d_n_bin,
+                             y=last_pymnt_d_n_bin_tran$charge_off_Cnts),
+                         stat="identity",fill = "#CCCCFF", colour="black") + labs(x = "Last Payment date bin", y = "")
+  
+  p <- p + theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+                 axis.text.y=element_text(size = 10, face="bold"))
+  p <- p + ggtitle("Number of Charge offs                                       Percent of Charge offs\n")+
+    theme(plot.title = element_text(lineheight=.8, face="bold",size = 8))
+  
+  p <- p + 
+    geom_line(data=df1,aes(df1$last_pymnt_d_n_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    geom_line(data=df2,aes(df2$last_pymnt_d_n_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))
+  
+  p <- p + geom_point(data=df1,aes(df1$last_pymnt_d_n_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17) 
+  p <- p + geom_point(data=df2,aes(df2$last_pymnt_d_n_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)
+  
+  p <- p +scale_y_continuous(sec.axis = sec_axis(~./5, name = derive())) +
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major = element_line(color = "gray50", size = 0.5),
+          panel.grid.major.x = element_blank())
+  
+  p
+  p3 <- ggplot() + 
+    geom_line(data=df1,aes(df1$last_pymnt_d_n_bin, df1$pct_cnts_grp*5, group = 1, colour = "% Charge off in Bin"), size = 1 )+
+    #geom_line(data=df2,aes(df2$last_pymnt_d_n_bin, df2$pct_cnts_tot*5, group = 1, colour = "% Charge off by total Charge off"),size = 1) +
+    scale_colour_manual(name="Legend",breaks = c("% Charge off in Bin","% Charge off by total Charge off"),
+                        values = c("% Charge off in Bin"="#ff66ff","% Charge off by total Charge off"="#43f906"))+
+    labs(x = "Last Payment date bin", y = "Percent of Charge offs")
+  theme(axis.text.x=element_text(angle=45,hjust=1,vjust=01,size = 10, face="bold"),
+        axis.text.y=element_text(size = 10, face="bold"))
+  
+  p3 <- p3 + geom_point(data=df1,aes(df1$last_pymnt_d_n_bin, df1$pct_cnts_grp*5), colour = "#ff66ff", size =2.5, shape = 17)+
+    geom_text(data=df1,aes(df1$last_pymnt_d_n_bin, df1$pct_cnts_grp*5,label=round(df1$pct_cnts_grp)),hjust=0, vjust=0)
+  #p3 <- p3 + geom_point(data=df2,aes(df2$last_pymnt_d_n_bin, df2$pct_cnts_tot*5), colour = "#43f906", size =2.5, shape = 17)+
+  #  geom_text(data=df2,aes(df2$last_pymnt_d_n_bin, df2$pct_cnts_tot*5,label=round(df2$pct_cnts_tot)),hjust=0, vjust=0)
+  
+  p3 <- p3 + theme(axis.text.y=element_blank(),
+                   axis.ticks.y=element_blank())
+  
+  retList <- list(p,p3)
+  return(retList)
+  
+}
+bin_plot(12)
+
+
+
+```
+
